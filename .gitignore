@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+.env.local
+*.log
+coverage/
+.vite/
+apps/web/test-results/
+dump.rdb
