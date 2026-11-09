@@ -1,0 +1,188 @@
+@import "tailwindcss";
+@import "@fontsource-variable/plus-jakarta-sans";
+@import "@fontsource-variable/newsreader";
+
+/* Theme selection is driven by data-theme on <html> (see index.html + lib/theme.ts). */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/*
+ * Tokens. Reasons for each color live in DESIGN.md.
+ * Contrast (WCAG AA) checked for: ink/paper, muted/paper, muted/surface, teal/paper,
+ * on-teal/teal, and the same pairs in dark mode.
+ */
+:root {
+  --paper: #f7f5ef;
+  --surface: #ffffff;
+  --surface-2: #efece4;
+  --line: #e1ddd2;
+  --line-strong: #c9c4b6;
+  --ink: #1c1f1e;
+  --muted: #545a57;
+  --teal: #0e5e56;
+  --teal-hover: #0b4d46;
+  --teal-soft: #dcebe7;
+  --on-teal: #ffffff;
+  --kunyit: #e8a317;
+  --kunyit-soft: #fbefd2;
+  --on-kunyit: #2a1f05;
+  --rec: #b42f25;
+  --rec-soft: #f8e3e0;
+  --ok: #2f6b3a;
+  --focus: #0e5e56;
+  --shadow-pop: 0 1px 2px rgb(28 31 30 / 0.06), 0 12px 32px -8px rgb(28 31 30 / 0.22);
+}
+
+:root[data-theme="dark"] {
+  --paper: #121615;
+  --surface: #1a1f1e;
+  --surface-2: #232928;
+  --line: #2e3533;
+  --line-strong: #414a47;
+  --ink: #ecebe5;
+  --muted: #a8afab;
+  --teal: #5fc4b4;
+  --teal-hover: #7dd3c5;
+  --teal-soft: #1b3531;
+  --on-teal: #0b1a18;
+  --kunyit: #f0b43a;
+  --kunyit-soft: #3a2e12;
+  --on-kunyit: #1e1503;
+  --rec: #ff6b5e;
+  --rec-soft: #3d1c19;
+  --ok: #7cc68a;
+  --focus: #7dd3c5;
+  --shadow-pop: 0 1px 2px rgb(0 0 0 / 0.3), 0 16px 40px -8px rgb(0 0 0 / 0.6);
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-teal: var(--teal);
+  --color-teal-hover: var(--teal-hover);
+  --color-teal-soft: var(--teal-soft);
+  --color-on-teal: var(--on-teal);
+  --color-kunyit: var(--kunyit);
+  --color-kunyit-soft: var(--kunyit-soft);
+  --color-on-kunyit: var(--on-kunyit);
+  --color-rec: var(--rec);
+  --color-rec-soft: var(--rec-soft);
+  --color-ok: var(--ok);
+  /* The meeting room is always dark: video reads best on a dark surround. */
+  --color-room: #0f1312;
+  --color-room-2: #181d1c;
+  --color-room-3: #232a28;
+  --color-room-line: #2f3735;
+  --color-room-ink: #eceae4;
+  --color-room-muted: #a3aaa6;
+  --font-sans: "Plus Jakarta Sans Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Newsreader Variable", ui-serif, Georgia, serif;
+  --shadow-pop: var(--shadow-pop);
+  --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-feature-settings: "ss01";
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* One visible focus style everywhere (R-32). Never removed, only replaced. */
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+.room :focus-visible {
+  outline-color: #f0b43a;
+}
+
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Pressable feedback: the interface heard the click. */
+.press {
+  transition:
+    transform 140ms var(--ease-out-strong),
+    background-color 150ms ease,
+    color 150ms ease,
+    border-color 150ms ease;
+}
+.press:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+/* Entry for popovers, dialogs, panel content. Never from scale(0). */
+.enter-pop {
+  animation: enter-pop 180ms var(--ease-out-strong) both;
+}
+@keyframes enter-pop {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+}
+.enter-fade {
+  animation: enter-fade 160ms ease-out both;
+}
+@keyframes enter-fade {
+  from {
+    opacity: 0;
+  }
+}
+/* New transcript segment: slides up a few pixels so the eye catches the new line. */
+.enter-line {
+  animation: enter-line 220ms var(--ease-out-strong) both;
+}
+@keyframes enter-line {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+/* Identity motif: the turmeric ring marks whoever is speaking. */
+.speaking-ring {
+  box-shadow:
+    0 0 0 2px var(--color-kunyit, #f0b43a),
+    0 0 0 5px rgb(240 180 58 / 0.25);
+  transition: box-shadow 160ms ease;
+}
+
+.rec-dot {
+  animation: rec-pulse 1.6s ease-in-out infinite;
+}
+@keyframes rec-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .enter-pop,
+  .enter-line {
+    animation: enter-fade 120ms ease-out both;
+  }
+  .press:active:not(:disabled) {
+    transform: none;
+  }
+  .rec-dot {
+    animation: none;
+  }
+}
+
+.scrollbar-thin {
+  scrollbar-width: thin;
+}

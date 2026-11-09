@@ -1,0 +1,19 @@
+# Local development LiveKit config. Production: see README (TURN, TLS, redis, node IP).
+port: 7880
+rtc:
+  tcp_port: 7881
+  port_range_start: 50000
+  port_range_end: 50100
+  use_external_ip: false
+  node_ip: 127.0.0.1
+keys:
+  devkey: secret
+webhook:
+  api_key: devkey
+  urls:
+    - http://localhost:4000/api/v1/webhooks/livekit
+room:
+  empty_timeout: 300
+  departure_timeout: 30
+logging:
+  level: info

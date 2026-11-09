@@ -1,0 +1,560 @@
+// Zuum database schema.
+// Baseline: PRD section 8, plus the additions listed in 8.1 (consent events,
+// webhook/outbox idempotency, refresh tokens, versioned minutes).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserStatus {
+  ACTIVE
+  INVITED
+  SUSPENDED
+  DELETED
+}
+
+enum MeetingStatus {
+  SCHEDULED
+  LIVE
+  ENDED
+  CANCELLED
+}
+
+enum MeetingRole {
+  OWNER
+  HOST
+  CO_HOST
+  PARTICIPANT
+  GUEST
+}
+
+enum ParticipantStatus {
+  INVITED
+  WAITING
+  JOINED
+  LEFT
+  REMOVED
+  REJECTED
+}
+
+enum AssetType {
+  COMPOSITE_RECORDING
+  AUDIO_TRACK
+  VIDEO_TRACK
+  SCREEN_SHARE
+  TRANSCRIPT_EXPORT
+  MINUTES_EXPORT
+}
+
+enum AssetStatus {
+  QUEUED
+  RECORDING
+  PROCESSING
+  READY
+  FAILED
+  DELETED
+}
+
+enum TranscriptStatus {
+  PENDING
+  STREAMING
+  FINALIZING
+  COMPLETED
+  PARTIAL
+  FAILED
+}
+
+enum SegmentStatus {
+  PARTIAL
+  FINAL
+  NEEDS_REVIEW
+  CORRECTED
+}
+
+enum AIJobType {
+  TRANSCRIPT_FINALIZE
+  SUMMARY
+  TOPICS
+  DECISIONS
+  ACTION_ITEMS
+  MINUTES
+  FULL_MEETING_DOCUMENT
+}
+
+enum JobStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum ActionItemStatus {
+  OPEN
+  IN_PROGRESS
+  DONE
+  CANCELLED
+}
+
+enum DecisionStatus {
+  PROPOSED
+  CONFIRMED
+  REJECTED
+  NEEDS_REVIEW
+}
+
+enum InvitationStatus {
+  ACTIVE
+  REVOKED
+  EXPIRED
+  CONSUMED
+}
+
+enum TranscriptVisibility {
+  HOST_ONLY
+  HOST_AND_PARTICIPANTS
+  EVERYONE
+}
+
+enum ConsentType {
+  RECORDING
+  TRANSCRIPTION
+}
+
+model User {
+  id              String     @id @default(cuid())
+  email           String     @unique
+  passwordHash    String?
+  displayName     String
+  avatarUrl       String?
+  locale          String     @default("id-ID")
+  timezone        String     @default("Asia/Jakarta")
+  status          UserStatus @default(ACTIVE)
+  emailVerifiedAt DateTime?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  ownedMeetings  Meeting[]            @relation("MeetingOwner")
+  memberships    MeetingParticipant[]
+  auditLogs      AuditLog[]
+  refreshTokens  RefreshToken[]
+  authTokens     UserAuthToken[]
+}
+
+model RefreshToken {
+  id         String    @id @default(cuid())
+  userId     String
+  tokenHash  String    @unique
+  familyId   String
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  replacedBy String?
+  userAgent  String?
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([familyId])
+}
+
+// Single-use tokens for password reset and email verification. Only the hash is stored.
+model UserAuthToken {
+  id         String    @id @default(cuid())
+  userId     String
+  purpose    String
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose])
+}
+
+model Meeting {
+  id                   String               @id @default(cuid())
+  code                 String               @unique
+  title                String
+  description          String?
+  agenda               String[]
+  status               MeetingStatus        @default(SCHEDULED)
+  ownerId              String
+  livekitRoomName      String               @unique
+  scheduledAt          DateTime?
+  durationMinutes      Int?
+  startedAt            DateTime?
+  endedAt              DateTime?
+  timezone             String               @default("Asia/Jakarta")
+  language             String               @default("id-ID")
+  maxParticipants      Int                  @default(150)
+  guestLinkEnabled     Boolean              @default(true)
+  waitingRoom          Boolean              @default(true)
+  locked               Boolean              @default(false)
+  passcodeHash         String?
+  recordingEnabled     Boolean              @default(true)
+  recordingActive      Boolean              @default(false)
+  transcriptionEnabled Boolean              @default(true)
+  transcriptVisibility TranscriptVisibility @default(HOST_AND_PARTICIPANTS)
+  participantsCanDownload Boolean           @default(false)
+  coHostCanMute        Boolean              @default(true)
+  coHostCanRemove      Boolean              @default(false)
+  coHostCanRecord      Boolean              @default(false)
+  chatAsAiContext      Boolean              @default(false)
+  retentionDays        Int                  @default(90)
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+
+  owner         User                 @relation("MeetingOwner", fields: [ownerId], references: [id])
+  participants  MeetingParticipant[]
+  invitations   MeetingInvitation[]
+  assets        MeetingAsset[]
+  transcript    Transcript?
+  aiJobs        AIJob[]
+  summary       MeetingSummary?
+  minutes       MeetingMinutes[]
+  topics        MeetingTopic[]
+  decisions     MeetingDecision[]
+  actionItems   ActionItem[]
+  chatMessages  ChatMessage[]
+  auditLogs     AuditLog[]
+  consentEvents ConsentEvent[]
+
+  @@index([ownerId, createdAt])
+  @@index([status, scheduledAt])
+}
+
+model MeetingParticipant {
+  id                String            @id @default(cuid())
+  meetingId         String
+  userId            String?
+  role              MeetingRole       @default(PARTICIPANT)
+  status            ParticipantStatus @default(INVITED)
+  // Server-generated, never taken from user input (PRD 8.1).
+  identity          String
+  displayName       String
+  // Set when a host admits the participant from the waiting room.
+  admittedAt        DateTime?
+  joinedAt          DateTime?
+  leftAt            DateTime?
+  lastSeenAt        DateTime?
+  isGuest           Boolean           @default(false)
+  consentRecording  Boolean           @default(false)
+  consentTranscript Boolean           @default(false)
+  createdAt         DateTime          @default(now())
+
+  meeting            Meeting             @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  user               User?               @relation(fields: [userId], references: [id])
+  audioTracks        ParticipantTrack[]
+  transcriptSegments TranscriptSegment[]
+  chatMessages       ChatMessage[]
+  assignedActions    ActionItem[]        @relation("ActionAssignee")
+  consentEvents      ConsentEvent[]
+
+  @@unique([meetingId, identity])
+  @@index([meetingId, status])
+  @@index([userId])
+}
+
+model MeetingInvitation {
+  id          String           @id @default(cuid())
+  meetingId   String
+  tokenHash   String           @unique
+  status      InvitationStatus @default(ACTIVE)
+  expiresAt   DateTime?
+  maxUses     Int?
+  useCount    Int              @default(0)
+  role        MeetingRole      @default(GUEST)
+  createdById String
+  createdAt   DateTime         @default(now())
+  revokedAt   DateTime?
+
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@index([meetingId, status])
+}
+
+model ParticipantTrack {
+  id               String    @id @default(cuid())
+  participantId    String
+  trackSid         String
+  trackType        String
+  source           String?
+  startedAt        DateTime  @default(now())
+  endedAt          DateTime?
+  transcriptionKey String?
+  metadata         Json?
+
+  participant MeetingParticipant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+
+  @@unique([participantId, trackSid])
+  @@index([trackSid])
+}
+
+model Transcript {
+  id           String           @id @default(cuid())
+  meetingId    String           @unique
+  status       TranscriptStatus @default(PENDING)
+  language     String           @default("id-ID")
+  version      Int              @default(1)
+  nextSequence Int              @default(1)
+  finalizedAt  DateTime?
+  errorCode    String?
+  // Finalization notes: gaps, duplicate segment ids, worker errors.
+  metadata     Json?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  meeting  Meeting             @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  segments TranscriptSegment[]
+}
+
+model TranscriptSegment {
+  id                String        @id @default(cuid())
+  transcriptId      String
+  participantId     String?
+  trackSid          String?
+  sequence          Int
+  // Idempotency key: trackSid + stream epoch + provider result index.
+  // A reconnecting worker re-emitting the same final result hits this constraint.
+  dedupeKey         String        @unique
+  startMs           BigInt
+  endMs             BigInt
+  timingEstimated   Boolean       @default(false)
+  originalText      String
+  correctedText     String?
+  correctedById     String?
+  correctedAt       DateTime?
+  speakerVerified   Boolean       @default(true)
+  speakerName       String
+  status            SegmentStatus @default(FINAL)
+  confidence        Float?
+  provider          String?
+  providerSegmentId String?
+  language          String        @default("id-ID")
+  metadata          Json?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  transcript  Transcript          @relation(fields: [transcriptId], references: [id], onDelete: Cascade)
+  participant MeetingParticipant? @relation(fields: [participantId], references: [id])
+
+  @@unique([transcriptId, sequence])
+  @@index([transcriptId, startMs])
+  @@index([participantId, startMs])
+}
+
+model MeetingAsset {
+  id         String      @id @default(cuid())
+  meetingId  String
+  type       AssetType
+  status     AssetStatus @default(QUEUED)
+  // LiveKit egress id, used to match webhook events back to the asset.
+  externalId String?     @unique
+  storageKey String?
+  fileName   String?
+  mimeType   String?
+  sizeBytes  BigInt?
+  durationMs BigInt?
+  checksum   String?
+  isPrivate  Boolean     @default(true)
+  metadata   Json?
+  createdAt  DateTime    @default(now())
+  readyAt    DateTime?
+  deletedAt  DateTime?
+  errorCode  String?
+  errorMessage String?
+
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@index([meetingId, type, status])
+}
+
+model AIJob {
+  id             String    @id @default(cuid())
+  meetingId      String
+  type           AIJobType
+  status         JobStatus @default(QUEUED)
+  idempotencyKey String    @unique
+  inputVersion   Int?
+  outputVersion  Int?
+  provider       String?
+  model          String?
+  promptVersion  String?
+  attempts       Int       @default(0)
+  startedAt      DateTime?
+  completedAt    DateTime?
+  errorCode      String?
+  errorMessage   String?
+  usage          Json?
+  createdAt      DateTime  @default(now())
+
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@index([meetingId, type, status])
+}
+
+model MeetingSummary {
+  id            String   @id @default(cuid())
+  meetingId     String   @unique
+  version       Int      @default(1)
+  overview      String
+  purpose       String?
+  keyPoints     Json
+  needsReview   Boolean  @default(false)
+  rawOutput     Json?
+  generatedAt   DateTime @default(now())
+  model         String?
+  promptVersion String?
+
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+}
+
+// Versioned so a regenerate never overwrites history (PRD 8.1).
+model MeetingMinutes {
+  id            String   @id @default(cuid())
+  meetingId     String
+  version       Int
+  content       Json
+  generatedAt   DateTime @default(now())
+  model         String?
+  promptVersion String?
+
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@unique([meetingId, version])
+}
+
+model MeetingTopic {
+  id                 String   @id @default(cuid())
+  meetingId          String
+  title              String
+  summary            String
+  startMs            BigInt?
+  endMs              BigInt?
+  evidenceSegmentIds String[]
+  contributorIds     String[]
+  sortOrder          Int      @default(0)
+  createdAt          DateTime @default(now())
+
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@index([meetingId, sortOrder])
+}
+
+model MeetingDecision {
+  id                 String         @id @default(cuid())
+  meetingId          String
+  description        String
+  context            String?
+  status             DecisionStatus @default(NEEDS_REVIEW)
+  evidenceSegmentIds String[]
+  confidence         Float?
+  reviewedById       String?
+  reviewedAt         DateTime?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@index([meetingId, status])
+}
+
+model ActionItem {
+  id                    String           @id @default(cuid())
+  meetingId             String
+  description           String
+  assigneeParticipantId String?
+  dueDate               DateTime?
+  status                ActionItemStatus @default(OPEN)
+  evidenceSegmentIds    String[]
+  confidence            Float?
+  needsReview           Boolean          @default(false)
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+
+  assignee      MeetingParticipant? @relation("ActionAssignee", fields: [assigneeParticipantId], references: [id], onDelete: SetNull)
+  sourceMeeting Meeting             @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@index([meetingId, status])
+  @@index([assigneeParticipantId])
+}
+
+model ChatMessage {
+  id            String    @id @default(cuid())
+  meetingId     String
+  participantId String
+  body          String
+  createdAt     DateTime  @default(now())
+  editedAt      DateTime?
+
+  meeting     Meeting            @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  participant MeetingParticipant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+
+  @@index([meetingId, createdAt])
+}
+
+model ConsentEvent {
+  id            String      @id @default(cuid())
+  meetingId     String
+  participantId String
+  type          ConsentType
+  granted       Boolean
+  noticeVersion String
+  source        String
+  createdAt     DateTime    @default(now())
+
+  meeting     Meeting            @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  participant MeetingParticipant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+
+  @@index([meetingId, participantId, type])
+}
+
+// LiveKit can redeliver webhooks; the event id makes processing idempotent.
+model WebhookEvent {
+  id          String   @id
+  source      String
+  event       String
+  receivedAt  DateTime @default(now())
+  processedAt DateTime?
+}
+
+// Transactional outbox: written in the same transaction as the state change,
+// then dispatched to the queue by the outbox relay.
+model OutboxEvent {
+  id          String    @id @default(cuid())
+  topic       String
+  payload     Json
+  createdAt   DateTime  @default(now())
+  dispatchedAt DateTime?
+  attempts    Int       @default(0)
+  lastError   String?
+
+  @@index([dispatchedAt, createdAt])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  meetingId  String?
+  userId     String?
+  actorType  String
+  action     String
+  resource   String
+  resourceId String?
+  ipAddress  String?
+  userAgent  String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  meeting Meeting? @relation(fields: [meetingId], references: [id], onDelete: SetNull)
+  user    User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([meetingId, createdAt])
+  @@index([userId, createdAt])
+}
