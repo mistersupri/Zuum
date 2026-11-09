@@ -7,8 +7,9 @@ services:
     volumes: [pgdata:/var/lib/postgresql/data]
     healthcheck: { test: ["CMD-SHELL", "pg_isready -U zuum"], interval: 5s, retries: 10 }
 
+  # Valkey: the BSD-licensed Redis fork; drop-in for BullMQ and pub/sub.
   redis:
-    image: redis:7-alpine
+    image: valkey/valkey:8-alpine
 
   livekit:
     image: livekit/livekit-server:v1.13
@@ -35,6 +36,16 @@ services:
     environment: { MINIO_ROOT_USER: zuum, MINIO_ROOT_PASSWORD: zuum-secret-key }
     ports: ["9000:9000", "9001:9001"]
     volumes: [miniodata:/data]
+
+  # Free speech-to-text: faster-whisper behind an OpenAI-compatible API (CPU image).
+  # Use the GPU image on a machine with an NVIDIA GPU for lower latency.
+  whisper:
+    image: ghcr.io/speaches-ai/speaches:latest-cpu
+
+  # Free LLM for minutes. Pull the model once: docker compose exec ollama ollama pull qwen2.5:7b-instruct
+  ollama:
+    image: ollama/ollama:latest
+    volumes: [ollama:/root/.ollama]
 
   migrate:
     build: { context: ., dockerfile: infra/docker/node.Dockerfile, args: { APP: api } }
@@ -67,7 +78,9 @@ services:
       DATABASE_URL: postgresql://zuum:zuum@postgres:5432/zuum
       REDIS_URL: redis://redis:6379
       LIVEKIT_URL: ws://livekit:7880
-    depends_on: { migrate: { condition: service_completed_successfully } }
+      WHISPER_BASE_URL: http://whisper:8000/v1
+      OLLAMA_BASE_URL: http://ollama:11434
+    depends_on: { migrate: { condition: service_completed_successfully }, whisper: { condition: service_started }, ollama: { condition: service_started } }
 
   web:
     build: { context: ., dockerfile: infra/docker/web.Dockerfile }
@@ -77,3 +90,4 @@ services:
 volumes:
   pgdata:
   miniodata:
+  ollama:

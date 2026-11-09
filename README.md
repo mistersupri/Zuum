@@ -3,8 +3,9 @@
 Aplikasi rapat video berbasis web dengan transkrip Bahasa Indonesia real-time per peserta dan notulen berbantuan AI. Dibangun dari PRD "AI Online Meeting" v1.0.
 
 - **Media**: WebRTC lewat LiveKit (SFU). Audio/video tidak pernah melewati API Node.js.
-- **Transkrip**: worker bergabung ke room sebagai peserta tersembunyi, berlangganan audio setiap peserta, dan mengirim tiap track ke STT. Identitas pembicara berasal dari track milik peserta yang terautentikasi, bukan tebakan diarization.
-- **AI**: setelah rapat berakhir, transkrip difinalisasi lalu Claude menyusun topik, keputusan, tindak lanjut, ringkasan, dan notulen sebagai keluaran terstruktur yang divalidasi schema. Setiap rujukan ke segmen transkrip diperiksa; item tanpa bukti ditandai "perlu ditinjau".
+- **Transkrip**: worker bergabung ke room sebagai peserta tersembunyi, berlangganan audio setiap peserta, memotongnya per ucapan (VAD), lalu mengirimnya ke Whisper. Identitas pembicara berasal dari track milik peserta yang terautentikasi, bukan tebakan diarization.
+- **AI**: setelah rapat berakhir, transkrip difinalisasi lalu LLM menyusun topik, keputusan, tindak lanjut, ringkasan, dan notulen sebagai keluaran terstruktur yang divalidasi schema. Setiap rujukan ke segmen transkrip diperiksa; item tanpa bukti ditandai "perlu ditinjau".
+- **Biaya**: default seluruh stack bisa di-host sendiri tanpa biaya lisensi atau API (lihat bagian Biaya).
 
 ## Struktur
 
@@ -23,8 +24,8 @@ Browser ──REST/SSE──> API ──> PostgreSQL
    │                   │ └──> Redis (pub/sub, rate limit, antrean BullMQ)
    └──WebRTC──> LiveKit ──webhook──> API ──outbox──> Worker
                    ▲                                   │
-                   └──── agen transkripsi (subscribe audio) ──> STT (Deepgram)
-                                                       └──> Claude (pipeline AI)
+                   └──── agen transkripsi (subscribe audio) ──> Whisper (self-host)
+                                                       └──> Ollama (pipeline AI, self-host)
 ```
 
 ## Menjalankan secara lokal
@@ -32,7 +33,7 @@ Browser ──REST/SSE──> API ──> PostgreSQL
 Prasyarat: Node 22, PostgreSQL 16, Redis 7, dan `livekit-server` (biner atau Docker).
 
 ```bash
-cp .env.example .env          # isi JWT_SECRET; untuk uji tanpa kunci API pakai STT_PROVIDER=mock dan LLM_PROVIDER=mock
+cp .env.example .env          # isi JWT_SECRET; tanpa server Whisper/Ollama, pakai STT_PROVIDER=mock dan LLM_PROVIDER=mock
 npm install
 npm run db:deploy             # menerapkan migrasi ke DATABASE_URL
 livekit-server --config infra/livekit.dev.yaml   # terminal terpisah
@@ -41,13 +42,14 @@ npm run dev                   # API :4000, worker, web :5173 (Vite mem-proxy /ap
 
 Buka http://localhost:5173, daftar akun, lalu klik **Mulai rapat sekarang**.
 
-Dengan Docker Compose (Postgres, Redis, LiveKit, Egress, MinIO, API, worker, web di :8080):
+Dengan Docker Compose (Postgres, Valkey, LiveKit, Egress, MinIO, faster-whisper, Ollama, API, worker, web di :8080):
 
 ```bash
 cp .env.example .env && docker compose up --build
+docker compose exec ollama ollama pull qwen2.5:7b-instruct   # sekali saja
 ```
 
-Buat bucket `zuum-recordings` di konsol MinIO (http://localhost:9001) sebelum merekam.
+Buat bucket `zuum-recordings` di konsol MinIO (http://localhost:9001) sebelum merekam. Model Whisper diunduh oleh server Whisper sesuai `WHISPER_MODEL`; ikuti dokumentasi server yang Anda pakai bila model perlu diunduh manual.
 
 ### Variabel penting
 
@@ -55,16 +57,38 @@ Buat bucket `zuum-recordings` di konsol MinIO (http://localhost:9001) sebelum me
 |---|---|
 | `JWT_SECRET` | Kunci tanda tangan token akses/tamu, minimal 32 karakter |
 | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | Koneksi ke LiveKit; kunci yang sama memverifikasi webhook |
-| `STT_PROVIDER`, `DEEPGRAM_API_KEY`, `STT_LANGUAGE=id` | Penyedia transkripsi. `mock` tidak mengenali ucapan, hanya memberi segmen uji berlabel |
-| `LLM_PROVIDER`, `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` | Penyedia AI (default `claude-opus-5-5`). `mock` mengembalikan hasil kosong berlabel |
-| `S3_*` | Penyimpanan rekaman (S3, R2, MinIO). Tanpa ini rekaman tidak dapat diputar |
+| `STT_PROVIDER`, `WHISPER_BASE_URL`, `WHISPER_MODEL`, `STT_LANGUAGE=id` | Transkripsi. Default `whisper` (server OpenAI-compatible: faster-whisper, whisper.cpp, atau API Whisper ter-host). `deepgram` tersedia sebagai opsi berbayar. `mock` hanya untuk uji |
+| `WHISPER_PARTIAL_INTERVAL_MS` | Teks parsial saat orang masih berbicara. `0` (default) mematikannya untuk menghemat komputasi |
+| `LLM_PROVIDER`, `OLLAMA_MODEL` | AI notulen. Default `ollama` (model terbuka self-host, default `qwen2.5:7b-instruct`). `anthropic` memakai Claude, default `claude-haiku-5-5` |
+| `S3_*` | Penyimpanan rekaman (MinIO bawaan, Cloudflare R2, S3). Tanpa ini rekaman tidak dapat diputar |
 | `RECORD_INDIVIDUAL_AUDIO` | Rekam juga audio per peserta selama perekaman |
 | `REQUIRE_EMAIL_VERIFICATION`, `SMTP_URL` | Verifikasi email dan email reset sandi. Di development, isi email dicetak ke log API |
+
+## Biaya
+
+Semua komponen default bersifat open source dan dapat dijalankan di server sendiri, jadi biaya yang tersisa hanya server.
+
+| Komponen | Default (gratis) | Opsi berbayar/hosting bila perlu |
+|---|---|---|
+| Media | LiveKit self-host (Apache-2.0) + Egress | LiveKit Cloud |
+| Transkripsi | faster-whisper via server OpenAI-compatible | API Whisper ter-host (`WHISPER_BASE_URL` + `WHISPER_API_KEY`), Deepgram |
+| AI notulen | Ollama + model terbuka | Claude (`LLM_PROVIDER=anthropic`, default Haiku 5.5, tier termurah) |
+| Database | PostgreSQL self-host | Postgres terkelola |
+| Antrean/pubsub | Valkey (fork Redis berlisensi BSD) | Redis terkelola |
+| Rekaman | MinIO | Cloudflare R2, S3 |
+| Email | SMTP apa pun | |
+
+Hal yang perlu diketahui sebelum memilih default gratis:
+
+- **Whisper bukan model streaming.** Teks final muncul setelah satu ucapan selesai ditambah waktu inferensi, jadi target PRD 6.3 (parsial ≤ 2,5 detik) sulit dicapai di CPU. Untuk mendekatinya: GPU, model lebih kecil, atau `WHISPER_PARTIAL_INTERVAL_MS` (menambah beban komputasi). Deepgram tetap tersedia bila latensi rendah wajib.
+- **Kebutuhan server.** Whisper dan model 7B di CPU akan lambat untuk banyak peserta sekaligus; kapasitas harus diukur dengan uji beban (PRD 5.4). GPU tunggal biasanya cukup untuk keduanya.
+- **Kualitas notulen.** Model lokal 7B lebih lemah daripada Claude dalam mengikuti aturan bukti dan Bahasa Indonesia formal. Validasi schema dan bukti tetap berjalan, dan keluaran yang tidak valid diminta diperbaiki sekali sebelum job gagal, tetapi tinjau hasilnya. `LLM_PROVIDER=anthropic` dengan Haiku adalah opsi murah bila kualitas kurang.
+- Whisper diketahui menghasilkan kalimat karangan pada audio hening. VAD membuang hening sebelum dikirim, segmen dengan `no_speech_prob` tinggi dibuang, dan frasa halusinasi yang umum ("Terima kasih telah menonton") disaring.
 
 ## Pengujian
 
 ```bash
-npm test                       # unit test: guardrail AI, chunking, matriks izin, normalisasi timestamp
+npm test                       # unit test: guardrail AI, chunking, matriks izin, timestamp, VAD/WAV, adapter Whisper & Ollama
 npm run typecheck
 node e2e/smoke.cjs             # butuh stack lokal berjalan + Playwright; STT/LLM mode mock
 ```
@@ -83,8 +107,8 @@ Uji asap E2E menjalankan: registrasi (termasuk validasi), buat rapat, consent wa
 | Ruang rapat: grid berpaginasi + tampilan pembicara aktif, simulcast/adaptive stream/dynacast, berbagi layar, chat, panel peserta (virtualisasi `content-visibility`), indikator REC/transkripsi/kunci, status koneksi, reconnect | Selesai |
 | Kontrol host: terima/tolak, bisukan, bisukan semua, keluarkan, jadikan co-host, kunci, rekam, akhiri untuk semua | Selesai |
 | Recording: egress komposit + audio per peserta, status aset dari webhook, signed URL 10 menit dengan audit | Kode selesai; **belum diuji dengan LiveKit Egress nyata** (di lingkungan pengembangan ini Egress tidak tersedia, jalur gagalnya teruji) |
-| Transkripsi per track: lease Redis satu transkriber per room dan per track, normalisasi ke timeline rapat, partial disiarkan, final disimpan sekali (dedupe key), status perlu ditinjau, koreksi menyimpan teks asli, penugasan ulang pembicara manual | Selesai dengan STT mock; **adapter Deepgram belum diuji dengan kunci nyata** |
-| Pipeline AI: tunggu flush, finalisasi (urut, dedupe, jeda), chunking, ekstraksi per chunk, validasi bukti, merge, ringkasan, notulen berversi, versi prompt/model/usage tersimpan, susun ulang tanpa mengubah transkrip | Selesai dengan LLM mock; **jalur Claude belum dijalankan dengan kunci nyata** |
+| Transkripsi per track: lease Redis satu transkriber per room dan per track, normalisasi ke timeline rapat, partial disiarkan, final disimpan sekali (dedupe key), status perlu ditinjau, koreksi menyimpan teks asli, penugasan ulang pembicara manual | Selesai. Adapter Whisper diuji end-to-end lewat LiveKit terhadap server tiruan berprotokol OpenAI; **belum dijalankan dengan model Whisper sungguhan** (unduhan model diblokir di lingkungan pengembangan ini). Deepgram belum diuji dengan kunci nyata |
+| Pipeline AI: tunggu flush, finalisasi (urut, dedupe, jeda), chunking, ekstraksi per chunk, validasi bukti, merge, ringkasan, notulen berversi, versi prompt/model/usage tersimpan, susun ulang tanpa mengubah transkrip | Selesai. Provider Ollama diuji end-to-end terhadap server tiruan berprotokol Ollama; **belum dijalankan dengan model sungguhan**, begitu juga jalur Claude |
 | Hasil: tab Ringkasan, Topik, Keputusan (tinjau/ubah), Tindak lanjut (penanggung jawab/tenggat/status), Transkrip (cari, filter, ekspor TXT/JSON/DOCX/PDF), Notulen (ekspor DOCX/PDF/TXT), Rekaman, Peserta | Selesai |
 | Riwayat: filter status/pemilik/tanggal, pencarian judul + full-text transkrip (indeks GIN) | Selesai |
 | Webhook LiveKit: verifikasi signature, idempotensi berdasarkan event id | Selesai |

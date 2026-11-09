@@ -159,7 +159,7 @@ export async function runPipeline(job: PipelineJob) {
         .join("\n");
 
     // PRD 7.1 steps 5-7: chunk, extract per chunk, merge and dedupe.
-    const chunks = chunkTranscript(segments);
+    const chunks = chunkTranscript(segments, { maxChars: Math.min(24_000, llm.maxInputChars) });
     const extracted = [];
     for (const chunk of chunks) {
       const res = await llm.structured({
@@ -179,7 +179,7 @@ export async function runPipeline(job: PipelineJob) {
       null,
       1,
     );
-    const transcriptForSummary = fullText.length < 120_000 ? `\n<transkrip>\n${fullText}\n</transkrip>` : "";
+    const transcriptForSummary = fullText.length < llm.maxInputChars ? `\n<transkrip>\n${fullText}\n</transkrip>` : "";
     const summary = await llm.structured({
       system: SUMMARY_SYSTEM,
       user: `${metaBlock}\n\nHasil ekstraksi terstruktur:\n${structuredBlock}${transcriptForSummary}`,

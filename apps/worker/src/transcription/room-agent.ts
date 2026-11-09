@@ -7,6 +7,7 @@ import { Lease, log, publish, roomLeaseKey, trackLeaseKey } from "../shared";
 import { emitPartial, persistFinal, type StreamContext } from "./sink";
 import { DeepgramProvider } from "./stt/deepgram";
 import { MockSttProvider } from "./stt/mock";
+import { WhisperProvider } from "./stt/whisper";
 import type { SttProvider, SttStream } from "./stt/types";
 
 const SAMPLE_RATE = 16_000;
@@ -14,6 +15,16 @@ export const AGENT_IDENTITY_PREFIX = "zuum-transcriber";
 
 function provider(): SttProvider {
   if (config.STT_PROVIDER === "mock") return new MockSttProvider();
+  if (config.STT_PROVIDER === "whisper") {
+    return new WhisperProvider({
+      baseUrl: config.WHISPER_BASE_URL,
+      apiKey: config.WHISPER_API_KEY,
+      model: config.WHISPER_MODEL,
+      partialIntervalMs: config.WHISPER_PARTIAL_INTERVAL_MS,
+      noSpeechThreshold: config.WHISPER_NO_SPEECH_THRESHOLD,
+      timeoutMs: config.WHISPER_TIMEOUT_MS,
+    });
+  }
   if (!config.DEEPGRAM_API_KEY) throw new Error("DEEPGRAM_API_KEY belum diisi; transkripsi tidak dapat berjalan.");
   return new DeepgramProvider(config.DEEPGRAM_API_KEY, config.DEEPGRAM_MODEL);
 }
