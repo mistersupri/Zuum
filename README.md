@@ -28,7 +28,7 @@ Browser ──REST/SSE──> API ──> PostgreSQL
                                                        └──> Ollama (pipeline AI, self-host)
 ```
 
-## Menjalankan secara lokal
+## Menjalankan secara lokal (pengembangan)
 
 Prasyarat: Node 22, PostgreSQL 16, Redis 7, dan `livekit-server` (biner atau Docker).
 
@@ -42,14 +42,49 @@ npm run dev                   # API :4000, worker, web :5173 (Vite mem-proxy /ap
 
 Buka http://localhost:5173, daftar akun, lalu klik **Mulai rapat sekarang**.
 
-Dengan Docker Compose (Postgres, Valkey, LiveKit, Egress, MinIO, faster-whisper, Ollama, API, worker, web di :8080):
+## Menjalankan dengan Docker Compose
+
+Kedua file compose sudah berisi seluruh konfigurasi (tidak perlu file `.env`). Isinya: Postgres, Valkey, LiveKit, Egress, MinIO (bucket rekaman dibuat otomatis), faster-whisper, Ollama (model diunduh otomatis saat start pertama, beberapa GB), API, worker, dan web di :8080.
+
+**Dari image yang sudah dipublikasikan** (tanpa clone repo):
 
 ```bash
-cp .env.example .env && docker compose up --build
-docker compose exec ollama ollama pull qwen2.5:7b-instruct   # sekali saja
+# Unduh docker-compose.yml dari aset GitHub Release, atau ambil deploy/docker-compose.yml
+docker compose up -d
 ```
 
-Buat bucket `zuum-recordings` di konsol MinIO (http://localhost:9001) sebelum merekam. Model Whisper diunduh oleh server Whisper sesuai `WHISPER_MODEL`; ikuti dokumentasi server yang Anda pakai bila model perlu diunduh manual.
+Image yang dipakai: `ghcr.io/mistersupri/zuum-{api,worker,web}:<versi>`. Versinya mengikuti rilis tempat file itu berasal; ganti tanpa mengedit file dengan `ZUUM_VERSION=1.2.3 docker compose up -d`. Bila paket GHCR masih private, jalankan `docker login ghcr.io` dulu.
+
+**Dari source** (repo ini): `docker compose up --build -d`.
+
+Sebelum dipakai di luar komputer sendiri, ubah nilai bertanda `GANTI` di blok **Konfigurasi** di bagian atas file:
+
+| Nilai | Isi dengan |
+|---|---|
+| `PUBLIC_APP_URL`, `CORS_ORIGINS` | Alamat yang dibuka pengguna, mis. `https://rapat.contoh.id` |
+| `LIVEKIT_URL` | Alamat LiveKit dari browser, mis. `wss://media.contoh.id` |
+| `node_ip` di `LIVEKIT_CONFIG` | IP publik server, agar peserta dari jaringan lain terhubung |
+| `S3_PUBLIC_ENDPOINT` | Alamat MinIO dari browser, untuk memutar rekaman |
+| `JWT_SECRET`, secret LiveKit (3 tempat), secret MinIO (3 tempat) | String acak, mis. `openssl rand -base64 48` |
+
+Model Whisper diunduh oleh server Whisper sesuai `WHISPER_MODEL`; ikuti dokumentasi server tersebut bila model perlu diunduh manual.
+
+## Versi dan rilis
+
+Versi mengikuti [Semantic Versioning](https://semver.org) dan hanya ada satu sumber: `version` di `package.json` root. Semua workspace dan versi image di `deploy/docker-compose.yml` diselaraskan oleh skrip, dan CI menolak versi yang tidak konsisten atau bukan semver.
+
+```bash
+npm run version:bump -- patch        # 0.1.0 -> 0.1.1   (juga: minor, major, prerelease, atau X.Y.Z)
+npm run version:check
+```
+
+Alur rilis: naikkan versi dalam pull request, lalu merge ke `main`. Workflow `.github/workflows/publish.yml` kemudian:
+
+1. Menjalankan typecheck, unit test, dan build web.
+2. Membangun dan mem-push `zuum-api`, `zuum-worker`, `zuum-web` ke GHCR dengan tag `X.Y.Z`, `X.Y`, `X` (mulai 1.0.0), `latest`, plus `main` dan `sha-<commit>`. Prerelease (mis. `1.0.0-rc.1`) hanya mendapat tag versinya sendiri dan tidak menggeser `latest`.
+3. Membuat tag git `vX.Y.Z` dan GitHub Release berisi catatan perubahan serta `docker-compose.yml` siap pakai.
+
+Push ke `main` tanpa kenaikan versi hanya memperbarui tag `main` dan `sha-<commit>`. Tag `v*` yang di-push manual harus sama persis dengan versi di `package.json`; bila tidak, workflow gagal. Setiap image membawa versinya: label OCI `org.opencontainers.image.version`, variabel `APP_VERSION`, `GET /healthz` pada API, dan menu pengguna di aplikasi web.
 
 ### Variabel penting
 
@@ -60,7 +95,7 @@ Buat bucket `zuum-recordings` di konsol MinIO (http://localhost:9001) sebelum me
 | `STT_PROVIDER`, `WHISPER_BASE_URL`, `WHISPER_MODEL`, `STT_LANGUAGE=id` | Transkripsi. Default `whisper` (server OpenAI-compatible: faster-whisper, whisper.cpp, atau API Whisper ter-host). `deepgram` tersedia sebagai opsi berbayar. `mock` hanya untuk uji |
 | `WHISPER_PARTIAL_INTERVAL_MS` | Teks parsial saat orang masih berbicara. `0` (default) mematikannya untuk menghemat komputasi |
 | `LLM_PROVIDER`, `OLLAMA_MODEL` | AI notulen. Default `ollama` (model terbuka self-host, default `qwen2.5:7b-instruct`). `anthropic` memakai Claude, default `claude-haiku-5-5` |
-| `S3_*` | Penyimpanan rekaman (MinIO bawaan, Cloudflare R2, S3). Tanpa ini rekaman tidak dapat diputar |
+| `S3_*`, `S3_PUBLIC_ENDPOINT` | Penyimpanan rekaman (MinIO bawaan, Cloudflare R2, S3). `S3_PUBLIC_ENDPOINT` dipakai untuk tautan putar bila endpoint internal tidak dapat dijangkau browser |
 | `RECORD_INDIVIDUAL_AUDIO` | Rekam juga audio per peserta selama perekaman |
 | `REQUIRE_EMAIL_VERIFICATION`, `SMTP_URL` | Verifikasi email dan email reset sandi. Di development, isi email dicetak ke log API |
 

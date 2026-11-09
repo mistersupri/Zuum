@@ -1,14 +1,21 @@
-name: Build and publish
+name: Build, publish and release
 
-# Pull requests: run checks and build every image without pushing.
-# Pushes to main (and version tags): run checks, then publish the images to
-# GitHub Packages (ghcr.io/<owner>/zuum-api, zuum-worker, zuum-web).
+# Versioning: the root package.json version (Semantic Versioning 2.0.0) is the only source.
+# Bump it with `npm run version:bump -- patch|minor|major|prerelease|X.Y.Z` in a pull request.
+#
+# Pull request to main  -> checks + build all images, no push.
+# Push to main          -> checks + push images tagged `main` and `sha-<commit>`.
+#                          If tag v<version> does not exist yet, this push is a RELEASE:
+#                          images also get `<version>`, `<major>.<minor>`, `<major>` (from 1.0.0)
+#                          and `latest` (not for prereleases), then the git tag v<version> and a
+#                          GitHub Release (with deploy/docker-compose.yml attached) are created.
+# Push of tag v*        -> must equal v<package.json version>; publishes that release.
 on:
   pull_request:
     branches: [main]
   push:
     branches: [main]
-    tags: ["v*.*.*"]
+    tags: ["v*"]
   workflow_dispatch:
 
 concurrency:
@@ -29,6 +36,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Version is semver and consistent
+        run: npm run version:check
       - name: Generate Prisma client
         run: npm run db:generate
       - run: npm run typecheck
@@ -36,26 +45,88 @@ jobs:
       - name: Build web app
         run: npm run build -w @zuum/web
 
+  version:
+    name: Resolve version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      major: ${{ steps.v.outputs.major }}
+      minor: ${{ steps.v.outputs.minor }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+      release: ${{ steps.v.outputs.release }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Read and validate
+        id: v
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version=$(node scripts/version.mjs print)   # exits non-zero if not semver
+          core=${version%%-*}; core=${core%%+*}
+          IFS=. read -r major minor _ <<< "$core"
+          prerelease=false; [[ "$version" == *-* ]] && prerelease=true
+
+          release=false
+          if [[ "$REF_TYPE" == "tag" ]]; then
+            if [[ "$REF_NAME" != "v$version" ]]; then
+              echo "::error::Tag $REF_NAME does not match package.json version v$version (tags must be v<semver>)."
+              exit 1
+            fi
+            release=true
+          elif [[ "$EVENT" != "pull_request" && "$REF" == "refs/heads/main" ]]; then
+            if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+              echo "v$version is already released; this push publishes the main/sha images only."
+            else
+              release=true
+            fi
+          elif [[ "$EVENT" == "pull_request" ]]; then
+            if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+              echo "::notice::v$version is already released. Merging will not create a new release; run 'npm run version:bump -- patch|minor|major' to make one."
+            else
+              echo "::notice::Merging this pull request will release v$version."
+            fi
+          fi
+
+          {
+            echo "version=$version"
+            echo "major=$major"
+            echo "minor=$minor"
+            echo "prerelease=$prerelease"
+            echo "release=$release"
+          } >> "$GITHUB_OUTPUT"
+          echo "version=$version release=$release prerelease=$prerelease"
+
   publish:
     name: Image ${{ matrix.image }}
-    needs: check
+    needs: [check, version]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         include:
           - image: api
             dockerfile: infra/docker/node.Dockerfile
-            build-args: APP=api
+            app: api
           - image: worker
             dockerfile: infra/docker/node.Dockerfile
-            build-args: APP=worker
+            app: worker
           - image: web
             dockerfile: infra/docker/web.Dockerfile
-            build-args: ""
+            app: web
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      RELEASE: ${{ needs.version.outputs.release }}
+      STABLE: ${{ needs.version.outputs.release == 'true' && needs.version.outputs.prerelease == 'false' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -79,21 +150,59 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ steps.name.outputs.image }}
+          flavor: latest=false
           tags: |
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=${{ env.VERSION }},enable=${{ env.RELEASE }}
+            type=raw,value=${{ needs.version.outputs.major }}.${{ needs.version.outputs.minor }},enable=${{ env.STABLE }}
+            type=raw,value=${{ needs.version.outputs.major }},enable=${{ env.STABLE == 'true' && needs.version.outputs.major != '0' }}
+            type=raw,value=latest,enable=${{ env.STABLE }}
+            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
             type=sha,format=short
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
             type=ref,event=pr
+          labels: |
+            org.opencontainers.image.version=${{ env.VERSION }}
 
       - name: Build${{ github.event_name != 'pull_request' && ' and push' || '' }}
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ${{ matrix.dockerfile }}
-          build-args: ${{ matrix.build-args }}
+          build-args: |
+            APP=${{ matrix.app }}
+            VERSION=${{ env.VERSION }}
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+  release:
+    name: GitHub Release v${{ needs.version.outputs.version }}
+    needs: [version, publish]
+    if: needs.version.outputs.release == 'true' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.version.outputs.version }}
+      PRERELEASE: ${{ needs.version.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+      # Created only after every image is pushed, so a release always has its images.
+      # A tag created with GITHUB_TOKEN does not trigger this workflow again.
+      - name: Create tag and release
+        run: |
+          set -euo pipefail
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          flags=(--title "Zuum v$VERSION" --generate-notes)
+          [[ "$PRERELEASE" == "true" ]] && flags+=(--prerelease) || flags+=(--latest)
+          notes=$(printf 'Docker images:\n\n- `ghcr.io/%s/zuum-api:%s`\n- `ghcr.io/%s/zuum-worker:%s`\n- `ghcr.io/%s/zuum-web:%s`\n\nJalankan: unduh `docker-compose.yml` dari aset rilis ini, ubah nilai bertanda GANTI, lalu `docker compose up -d`.' \
+            "$owner" "$VERSION" "$owner" "$VERSION" "$owner" "$VERSION")
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            echo "Release v$VERSION already exists; uploading the compose file only."
+            gh release upload "v$VERSION" deploy/docker-compose.yml --clobber
+          else
+            gh release create "v$VERSION" deploy/docker-compose.yml \
+              --target "$GITHUB_SHA" --notes "$notes" "${flags[@]}"
+          fi

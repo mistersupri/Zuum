@@ -14,7 +14,12 @@ RUN npm run build -w @zuum/db && npm run build -w @zuum/$APP && npm prune --omit
 
 FROM node:22-bookworm-slim
 ARG APP
-ENV NODE_ENV=production APP=${APP}
+# Semantic version of the release, set by CI from package.json (see scripts/version.mjs).
+ARG VERSION=0.0.0-dev
+LABEL org.opencontainers.image.title="zuum-${APP}" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.source="https://github.com/mistersupri/Zuum"
+ENV NODE_ENV=production APP=${APP} APP_VERSION=${VERSION}
 WORKDIR /repo
 RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 COPY --from=build /repo/node_modules ./node_modules

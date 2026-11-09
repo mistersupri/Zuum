@@ -93,7 +93,7 @@ async function reconcile() {
 }
 const reconcileTimer = setInterval(() => void reconcile().catch(() => undefined), 15_000);
 
-log.info({ stt: config.STT_PROVIDER, llm: config.LLM_PROVIDER, worker: config.WORKER_ID }, "worker Zuum aktif");
+log.info({ version: process.env.APP_VERSION ?? "dev", stt: config.STT_PROVIDER, llm: config.LLM_PROVIDER, worker: config.WORKER_ID }, "worker Zuum aktif");
 
 async function shutdown() {
   clearInterval(reconcileTimer);
