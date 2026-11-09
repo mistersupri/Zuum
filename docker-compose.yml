@@ -1,89 +1,209 @@
-# Local/staging stack. Production: run LiveKit on hosts with public IPs and TURN,
-# use managed Postgres/Redis/S3, and put TLS in front of web + LiveKit.
+# Zuum: build everything from this repository's source and run it.
+# No .env file needed: configuration is the "Konfigurasi" block below.
+#
+#   docker compose up --build -d
+#   open http://localhost:8080
+#
+# To run the published images instead of building, use deploy/docker-compose.yml.
+# Change the values marked GANTI before exposing it beyond your own machine.
+
+name: zuum
+
+# ---------------------------------------------------------------------------
+# Konfigurasi. Ubah di sini; semua service membaca blok ini.
+# ---------------------------------------------------------------------------
+x-zuum-env: &zuum-env
+  NODE_ENV: production
+  # GANTI: alamat yang dibuka pengguna di browser (pakai https:// di belakang reverse proxy TLS).
+  PUBLIC_APP_URL: http://localhost:8080
+  CORS_ORIGINS: http://localhost:8080
+  # GANTI: string acak minimal 32 karakter, misalnya hasil `openssl rand -base64 48`.
+  JWT_SECRET: GANTI-string-acak-minimal-32-karakter-untuk-produksi-0123456789
+  REQUIRE_EMAIL_VERIFICATION: "false"
+  # Email reset sandi. Kosong = email tidak terkirim (tautan tidak dicetak di production).
+  SMTP_URL: ""
+  MAIL_FROM: Zuum <no-reply@example.com>
+  TRUST_PROXY: "true"
+
+  DATABASE_URL: postgresql://zuum:zuum@postgres:5432/zuum
+  REDIS_URL: redis://redis:6379
+
+  # GANTI: alamat LiveKit yang dijangkau BROWSER (ws:// lokal, wss:// di belakang TLS).
+  LIVEKIT_URL: ws://localhost:7880
+  LIVEKIT_API_URL: http://livekit:7880
+  # GANTI (keduanya, dan samakan di blok LIVEKIT_CONFIG/EGRESS_CONFIG_BODY di bawah). Secret minimal 32 karakter.
+  LIVEKIT_API_KEY: zuumkey
+  LIVEKIT_API_SECRET: GANTI-secret-livekit-minimal-32-karakter-0123456789
+  RECORD_INDIVIDUAL_AUDIO: "false"
+
+  S3_ENDPOINT: http://minio:9000
+  # GANTI: alamat MinIO yang dijangkau browser, dipakai untuk tautan putar rekaman.
+  S3_PUBLIC_ENDPOINT: http://localhost:9000
+  S3_REGION: us-east-1
+  S3_BUCKET: zuum-recordings
+  S3_ACCESS_KEY_ID: zuum
+  # GANTI (samakan dengan MINIO_ROOT_PASSWORD di service minio).
+  S3_SECRET_ACCESS_KEY: GANTI-minio-secret-0123456789
+  S3_FORCE_PATH_STYLE: "true"
+
+  # Transkripsi gratis lewat faster-whisper bawaan. Opsi lain: deepgram (isi DEEPGRAM_API_KEY).
+  STT_PROVIDER: whisper
+  STT_LANGUAGE: id
+  WHISPER_BASE_URL: http://whisper:8000/v1
+  WHISPER_MODEL: Systran/faster-whisper-small
+  WHISPER_PARTIAL_INTERVAL_MS: "0"
+  DEEPGRAM_API_KEY: ""
+
+  # Notulen AI gratis lewat Ollama bawaan. Opsi lain: anthropic (isi ANTHROPIC_API_KEY).
+  LLM_PROVIDER: ollama
+  OLLAMA_BASE_URL: http://ollama:11434
+  OLLAMA_MODEL: qwen2.5:7b-instruct
+  ANTHROPIC_API_KEY: ""
+  ANTHROPIC_MODEL: claude-haiku-5-5
+
+x-restart: &restart
+  restart: unless-stopped
+
 services:
   postgres:
+    <<: *restart
     image: postgres:16-alpine
-    environment: { POSTGRES_USER: zuum, POSTGRES_PASSWORD: zuum, POSTGRES_DB: zuum }
+    environment:
+      POSTGRES_USER: zuum
+      POSTGRES_PASSWORD: zuum
+      POSTGRES_DB: zuum
     volumes: [pgdata:/var/lib/postgresql/data]
-    healthcheck: { test: ["CMD-SHELL", "pg_isready -U zuum"], interval: 5s, retries: 10 }
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U zuum"], interval: 5s, retries: 20 }
 
-  # Valkey: the BSD-licensed Redis fork; drop-in for BullMQ and pub/sub.
   redis:
+    <<: *restart
     image: valkey/valkey:8-alpine
 
   livekit:
+    <<: *restart
     image: livekit/livekit-server:v1.13
-    command: --config /etc/livekit.yaml
-    volumes: [./infra/livekit.compose.yaml:/etc/livekit.yaml:ro]
+    environment:
+      # GANTI node_ip ke IP publik server agar peserta dari jaringan lain bisa terhubung.
+      LIVEKIT_CONFIG: |
+        port: 7880
+        rtc:
+          tcp_port: 7881
+          port_range_start: 50000
+          port_range_end: 50100
+          use_external_ip: false
+          node_ip: 127.0.0.1
+        redis:
+          address: redis:6379
+        keys:
+          zuumkey: GANTI-secret-livekit-minimal-32-karakter-0123456789
+        webhook:
+          api_key: zuumkey
+          urls:
+            - http://api:4000/api/v1/webhooks/livekit
+        room:
+          empty_timeout: 300
+          departure_timeout: 30
     ports: ["7880:7880", "7881:7881", "50000-50100:50000-50100/udp"]
     depends_on: [redis]
 
-  # Server-side recording (composite + per-track audio). Needs the same API key/secret.
   egress:
+    <<: *restart
     image: livekit/egress:v1.10
     environment:
       EGRESS_CONFIG_BODY: |
-        api_key: devkey
-        api_secret: secret
+        api_key: zuumkey
+        api_secret: GANTI-secret-livekit-minimal-32-karakter-0123456789
         ws_url: ws://livekit:7880
-        redis: { address: redis:6379 }
+        redis:
+          address: redis:6379
     cap_add: [SYS_ADMIN]
-    depends_on: [livekit, redis]
+    depends_on: [livekit]
 
   minio:
+    <<: *restart
     image: minio/minio:latest
     command: server /data --console-address :9001
-    environment: { MINIO_ROOT_USER: zuum, MINIO_ROOT_PASSWORD: zuum-secret-key }
+    environment:
+      MINIO_ROOT_USER: zuum
+      MINIO_ROOT_PASSWORD: GANTI-minio-secret-0123456789
     ports: ["9000:9000", "9001:9001"]
     volumes: [miniodata:/data]
 
-  # Free speech-to-text: faster-whisper behind an OpenAI-compatible API (CPU image).
-  # Use the GPU image on a machine with an NVIDIA GPU for lower latency.
+  # Creates the private recordings bucket once.
+  minio-init:
+    image: minio/mc:latest
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >
+        until mc alias set zuum http://minio:9000 zuum GANTI-minio-secret-0123456789; do sleep 2; done;
+        mc mb --ignore-existing zuum/zuum-recordings
+    depends_on: [minio]
+
   whisper:
+    <<: *restart
     image: ghcr.io/speaches-ai/speaches:latest-cpu
 
-  # Free LLM for minutes. Pull the model once: docker compose exec ollama ollama pull qwen2.5:7b-instruct
   ollama:
+    <<: *restart
     image: ollama/ollama:latest
     volumes: [ollama:/root/.ollama]
 
+  # Downloads the LLM once (several GB on first run); later starts reuse the volume.
+  ollama-init:
+    image: ollama/ollama:latest
+    environment: { OLLAMA_HOST: http://ollama:11434 }
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["until ollama list >/dev/null 2>&1; do sleep 2; done; ollama pull qwen2.5:7b-instruct"]
+    depends_on: [ollama]
+
   migrate:
-    build: { context: ., dockerfile: infra/docker/node.Dockerfile, args: { APP: api } }
+    build:
+      context: .
+      dockerfile: infra/docker/node.Dockerfile
+      args: { APP: api, VERSION: 0.0.0-dev }
+    image: zuum-api:local
     working_dir: /repo/packages/db
     command: ["npx", "prisma", "migrate", "deploy"]
-    env_file: .env
-    environment: { DATABASE_URL: "postgresql://zuum:zuum@postgres:5432/zuum" }
+    environment: *zuum-env
     depends_on: { postgres: { condition: service_healthy } }
 
   api:
-    build: { context: ., dockerfile: infra/docker/node.Dockerfile, args: { APP: api } }
-    env_file: .env
-    environment:
-      NODE_ENV: production
-      DATABASE_URL: postgresql://zuum:zuum@postgres:5432/zuum
-      REDIS_URL: redis://redis:6379
-      LIVEKIT_API_URL: http://livekit:7880
-      S3_ENDPOINT: http://minio:9000
-      S3_ACCESS_KEY_ID: zuum
-      S3_SECRET_ACCESS_KEY: zuum-secret-key
-      S3_FORCE_PATH_STYLE: "true"
-      TRUST_PROXY: "true"
-    depends_on: { migrate: { condition: service_completed_successfully }, redis: { condition: service_started } }
+    <<: *restart
+    build:
+      context: .
+      dockerfile: infra/docker/node.Dockerfile
+      args: { APP: api, VERSION: 0.0.0-dev }
+    image: zuum-api:local
+    environment: *zuum-env
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_started }
+      minio-init: { condition: service_completed_successfully }
 
   worker:
-    build: { context: ., dockerfile: infra/docker/node.Dockerfile, args: { APP: worker } }
-    env_file: .env
+    <<: *restart
+    build:
+      context: .
+      dockerfile: infra/docker/node.Dockerfile
+      args: { APP: worker, VERSION: 0.0.0-dev }
+    image: zuum-worker:local
     environment:
-      NODE_ENV: production
-      DATABASE_URL: postgresql://zuum:zuum@postgres:5432/zuum
-      REDIS_URL: redis://redis:6379
+      <<: *zuum-env
+      # The worker joins rooms from inside the Docker network.
       LIVEKIT_URL: ws://livekit:7880
-      WHISPER_BASE_URL: http://whisper:8000/v1
-      OLLAMA_BASE_URL: http://ollama:11434
-    depends_on: { migrate: { condition: service_completed_successfully }, whisper: { condition: service_started }, ollama: { condition: service_started } }
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      livekit: { condition: service_started }
+      whisper: { condition: service_started }
+      ollama: { condition: service_started }
 
   web:
-    build: { context: ., dockerfile: infra/docker/web.Dockerfile }
+    <<: *restart
+    build:
+      context: .
+      dockerfile: infra/docker/web.Dockerfile
+      args: { VERSION: 0.0.0-dev }
+    image: zuum-web:local
     ports: ["8080:80"]
     depends_on: [api]
 

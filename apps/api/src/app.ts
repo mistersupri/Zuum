@@ -115,7 +115,8 @@ export async function buildApp() {
     reply.status(404).send({ error: { code: "NOT_FOUND", message: "Endpoint tidak ditemukan.", requestId: req.id } }),
   );
 
-  app.get("/healthz", async () => ({ ok: true }));
+  app.get("/healthz", async () => ({ ok: true, version: process.env.APP_VERSION ?? "dev" }));
+  app.get("/api/v1/healthz", async () => ({ ok: true, version: process.env.APP_VERSION ?? "dev" }));
 
   await app.register(
     async (api) => {

@@ -3,7 +3,10 @@
   "private": true,
   "version": "0.1.0",
   "description": "Zuum: rapat video dengan transkrip Bahasa Indonesia real-time dan notulen berbantuan AI.",
-  "workspaces": ["packages/*", "apps/*"],
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
   "scripts": {
     "dev": "npm run dev -w @zuum/api & npm run dev -w @zuum/worker & npm run dev -w @zuum/web",
     "build": "npm run build -w @zuum/db && npm run build -w @zuum/api && npm run build -w @zuum/worker && npm run build -w @zuum/web",
@@ -11,7 +14,11 @@
     "test": "npm run test --workspaces --if-present",
     "db:migrate": "npm run migrate -w @zuum/db",
     "db:deploy": "npm run deploy -w @zuum/db",
-    "db:generate": "npm run build -w @zuum/db"
+    "db:generate": "npm run build -w @zuum/db",
+    "version:check": "node scripts/version.mjs check",
+    "version:bump": "node scripts/version.mjs bump"
   },
-  "engines": { "node": ">=20.11" }
+  "engines": {
+    "node": ">=20.11"
+  }
 }

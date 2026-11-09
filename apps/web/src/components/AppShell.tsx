@@ -102,6 +102,7 @@ function UserMenu() {
           >
             <SignOut size={18} aria-hidden /> Keluar
           </button>
+          <p className="tnum px-3 pb-1 pt-2 text-xs text-muted">Zuum {import.meta.env.VITE_APP_VERSION ? `v${import.meta.env.VITE_APP_VERSION}` : "dev"}</p>
         </div>
       )}
     </div>
