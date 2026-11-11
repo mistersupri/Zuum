@@ -29,7 +29,7 @@ const schema = z.object({
 
   S3_ENDPOINT: z.string().optional(),
   // Browser-reachable endpoint used only to sign download URLs (e.g. http://<host>:9000 when
-  // S3_ENDPOINT is the internal http://minio:9000). Defaults to S3_ENDPOINT.
+  // S3_ENDPOINT is the internal http://rustfs:9000). Defaults to S3_ENDPOINT.
   S3_PUBLIC_ENDPOINT: z.string().optional(),
   S3_REGION: z.string().default("auto"),
   S3_BUCKET: z.string().default("zuum-recordings"),

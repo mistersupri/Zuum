@@ -44,7 +44,7 @@ Buka http://localhost:5173, daftar akun, lalu klik **Mulai rapat sekarang**.
 
 ## Menjalankan dengan Docker Compose
 
-Kedua file compose sudah berisi seluruh konfigurasi (tidak perlu file `.env`). Isinya: Postgres, Valkey, LiveKit, Egress, MinIO (bucket rekaman dibuat otomatis), faster-whisper, Ollama (model diunduh otomatis saat start pertama, beberapa GB), API, worker, dan web di :8080.
+Kedua file compose sudah berisi seluruh konfigurasi (tidak perlu file `.env`). Isinya: Postgres, Valkey, LiveKit, Egress, RustFS (penyimpanan rekaman kompatibel S3; bucket dibuat otomatis oleh API), faster-whisper, Ollama (model diunduh otomatis saat start pertama, beberapa GB), API, worker, dan web di :8080.
 
 **Dari image yang sudah dipublikasikan** (tanpa clone repo):
 
@@ -64,8 +64,8 @@ Sebelum dipakai di luar komputer sendiri, ubah nilai bertanda `GANTI` di blok **
 | `PUBLIC_APP_URL`, `CORS_ORIGINS` | Alamat yang dibuka pengguna, mis. `https://rapat.contoh.id` |
 | `LIVEKIT_URL` | Alamat LiveKit dari browser, mis. `wss://media.contoh.id` |
 | `node_ip` di `LIVEKIT_CONFIG` | IP publik server, agar peserta dari jaringan lain terhubung |
-| `S3_PUBLIC_ENDPOINT` | Alamat MinIO dari browser, untuk memutar rekaman |
-| `JWT_SECRET`, secret LiveKit (3 tempat), secret MinIO (3 tempat) | String acak, mis. `openssl rand -base64 48` |
+| `S3_PUBLIC_ENDPOINT` | Alamat RustFS dari browser, untuk memutar rekaman |
+| `JWT_SECRET`, secret LiveKit (3 tempat), secret RustFS (2 tempat: `RUSTFS_SECRET_KEY` dan `S3_SECRET_ACCESS_KEY`) | String acak, mis. `openssl rand -base64 48` |
 
 Model Whisper diunduh oleh server Whisper sesuai `WHISPER_MODEL`; ikuti dokumentasi server tersebut bila model perlu diunduh manual.
 
@@ -95,7 +95,7 @@ Push ke `main` tanpa kenaikan versi hanya memperbarui tag `main` dan `sha-<commi
 | `STT_PROVIDER`, `WHISPER_BASE_URL`, `WHISPER_MODEL`, `STT_LANGUAGE=id` | Transkripsi. Default `whisper` (server OpenAI-compatible: faster-whisper, whisper.cpp, atau API Whisper ter-host). `deepgram` tersedia sebagai opsi berbayar. `mock` hanya untuk uji |
 | `WHISPER_PARTIAL_INTERVAL_MS` | Teks parsial saat orang masih berbicara. `0` (default) mematikannya untuk menghemat komputasi |
 | `LLM_PROVIDER`, `OLLAMA_MODEL` | AI notulen. Default `ollama` (model terbuka self-host, default `qwen2.5:7b-instruct`). `anthropic` memakai Claude, default `claude-haiku-5-5` |
-| `S3_*`, `S3_PUBLIC_ENDPOINT` | Penyimpanan rekaman (MinIO bawaan, Cloudflare R2, S3). `S3_PUBLIC_ENDPOINT` dipakai untuk tautan putar bila endpoint internal tidak dapat dijangkau browser |
+| `S3_*`, `S3_PUBLIC_ENDPOINT` | Penyimpanan rekaman (RustFS bawaan, Cloudflare R2, S3; bucket dibuat otomatis saat API start). `S3_PUBLIC_ENDPOINT` dipakai untuk tautan putar bila endpoint internal tidak dapat dijangkau browser |
 | `RECORD_INDIVIDUAL_AUDIO` | Rekam juga audio per peserta selama perekaman |
 | `REQUIRE_EMAIL_VERIFICATION`, `SMTP_URL` | Verifikasi email dan email reset sandi. Di development, isi email dicetak ke log API |
 
@@ -110,7 +110,7 @@ Semua komponen default bersifat open source dan dapat dijalankan di server sendi
 | AI notulen | Ollama + model terbuka | Claude (`LLM_PROVIDER=anthropic`, default Haiku 5.5, tier termurah) |
 | Database | PostgreSQL self-host | Postgres terkelola |
 | Antrean/pubsub | Valkey (fork Redis berlisensi BSD) | Redis terkelola |
-| Rekaman | MinIO | Cloudflare R2, S3 |
+| Rekaman | RustFS (Apache-2.0, kompatibel S3) | Cloudflare R2, S3 |
 | Email | SMTP apa pun | |
 
 Hal yang perlu diketahui sebelum memilih default gratis:

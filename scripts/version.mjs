@@ -8,6 +8,7 @@
 // "bump" rewrites the version in every package.json and the default image tag in
 // deploy/docker-compose.yml, so the release tag, the Docker image tags and the
 // compose file always carry the same semantic version.
+import { execSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -78,6 +79,8 @@ if (cmd === "print") {
     writeFileSync(join(root, p), JSON.stringify(json, null, 2) + "\n");
   }
   writeFileSync(join(root, COMPOSE), read(COMPOSE).replace(COMPOSE_RE, `\${ZUUM_VERSION:-${to}}`));
+  // Keep package-lock.json's workspace versions in step; no install, no scripts.
+  execSync("npm install --package-lock-only --ignore-scripts --no-audit --no-fund", { cwd: root, stdio: "ignore" });
   console.log(`${version} -> ${to}`);
 } else {
   fail("usage: version.mjs print | check | bump <patch|minor|major|prerelease|X.Y.Z>");

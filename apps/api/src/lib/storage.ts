@@ -1,6 +1,7 @@
 import { DeleteObjectCommand, GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { config } from "../config";
+import { ensureBucket } from "./bucket";
 
 const configured = Boolean(config.S3_ACCESS_KEY_ID && config.S3_SECRET_ACCESS_KEY);
 
@@ -26,6 +27,12 @@ const signer =
     : s3;
 
 export const storageConfigured = () => configured;
+
+/** Creates the recordings bucket if needed. Runs in the background at startup. */
+export function prepareStorage(log: Parameters<typeof ensureBucket>[2]) {
+  if (!s3) return Promise.resolve("failed" as const);
+  return ensureBucket(s3, config.S3_BUCKET, log);
+}
 
 /** Short-lived download URL. Callers must run the authorization check first (PRD 4.7). */
 export async function signedDownloadUrl(key: string, fileName?: string | null) {
