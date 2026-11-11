@@ -36,14 +36,15 @@ x-zuum-env: &zuum-env
   LIVEKIT_API_SECRET: GANTI-secret-livekit-minimal-32-karakter-0123456789
   RECORD_INDIVIDUAL_AUDIO: "false"
 
-  S3_ENDPOINT: http://minio:9000
-  # GANTI: alamat MinIO yang dijangkau browser, dipakai untuk tautan putar rekaman.
+  # Penyimpanan rekaman: RustFS bawaan (kompatibel S3). Bucket dibuat otomatis oleh API.
+  S3_ENDPOINT: http://rustfs:9000
+  # GANTI: alamat RustFS yang dijangkau browser, dipakai untuk tautan putar rekaman.
   S3_PUBLIC_ENDPOINT: http://localhost:9000
   S3_REGION: us-east-1
   S3_BUCKET: zuum-recordings
   S3_ACCESS_KEY_ID: zuum
-  # GANTI (samakan dengan MINIO_ROOT_PASSWORD di service minio).
-  S3_SECRET_ACCESS_KEY: GANTI-minio-secret-0123456789
+  # GANTI (samakan dengan RUSTFS_SECRET_KEY di service rustfs).
+  S3_SECRET_ACCESS_KEY: GANTI-rustfs-secret-0123456789
   S3_FORCE_PATH_STYLE: "true"
 
   # Transkripsi gratis lewat faster-whisper bawaan. Opsi lain: deepgram (isi DEEPGRAM_API_KEY).
@@ -119,25 +120,16 @@ services:
     cap_add: [SYS_ADMIN]
     depends_on: [livekit]
 
-  minio:
+  # S3-compatible object storage for recordings (Apache-2.0). Replaces MinIO, whose
+  # Docker images are no longer published. Console: http://localhost:9001
+  rustfs:
     <<: *restart
-    image: minio/minio:latest
-    command: server /data --console-address :9001
+    image: rustfs/rustfs:1.0.5
     environment:
-      MINIO_ROOT_USER: zuum
-      MINIO_ROOT_PASSWORD: GANTI-minio-secret-0123456789
+      RUSTFS_ACCESS_KEY: zuum
+      RUSTFS_SECRET_KEY: GANTI-rustfs-secret-0123456789
     ports: ["9000:9000", "9001:9001"]
-    volumes: [miniodata:/data]
-
-  # Creates the private recordings bucket once.
-  minio-init:
-    image: minio/mc:latest
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - >
-        until mc alias set zuum http://minio:9000 zuum GANTI-minio-secret-0123456789; do sleep 2; done;
-        mc mb --ignore-existing zuum/zuum-recordings
-    depends_on: [minio]
+    volumes: [rustfsdata:/data]
 
   whisper:
     <<: *restart
@@ -178,7 +170,7 @@ services:
     depends_on:
       migrate: { condition: service_completed_successfully }
       redis: { condition: service_started }
-      minio-init: { condition: service_completed_successfully }
+      rustfs: { condition: service_started }
 
   worker:
     <<: *restart
@@ -209,5 +201,5 @@ services:
 
 volumes:
   pgdata:
-  miniodata:
+  rustfsdata:
   ollama:
