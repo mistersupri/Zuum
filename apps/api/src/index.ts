@@ -3,9 +3,11 @@ import { buildApp } from "./app";
 import { relayOutbox } from "./lib/queue";
 import { startEventHub } from "./routes/stream";
 import { prepareStorage } from "./lib/storage";
+import { livekitUrlProblems } from "./lib/livekit-url";
 import { prisma } from "@zuum/db";
 
 const app = await buildApp();
+for (const problem of livekitUrlProblems(config.LIVEKIT_URL, config.PUBLIC_APP_URL)) app.log.warn(problem);
 await startEventHub(app.log);
 
 const relay = setInterval(() => {

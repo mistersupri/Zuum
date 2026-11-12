@@ -10,6 +10,7 @@ import { Errors } from "../lib/errors";
 import { publish } from "../lib/events";
 import { signGuestToken } from "../lib/jwt";
 import { issueLivekitToken, roomService } from "../lib/livekit";
+import { browserLivekitUrl } from "../lib/livekit-url";
 import { findUsableInvitation, startMeeting } from "./meetings";
 
 const joinBody = z.object({
@@ -212,7 +213,7 @@ export async function joinRoutes(app: FastifyInstance) {
       participantId: participant.id,
       role,
       guestToken,
-      livekit: { url: config.LIVEKIT_URL, token },
+      livekit: { url: browserLivekitUrl(config.LIVEKIT_URL, config.PUBLIC_APP_URL), token },
       permissions: {
         ...grants,
         canRecord: can(role, "recording.control", policy),

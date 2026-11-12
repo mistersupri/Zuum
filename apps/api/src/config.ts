@@ -20,7 +20,10 @@ const schema = z.object({
   GUEST_TOKEN_TTL_SECONDS: z.coerce.number().default(12 * 3600),
   REQUIRE_EMAIL_VERIFICATION: bool,
 
+  // URL given to browsers: a path on the app origin (/livekit, proxied by the web container)
+  // or an absolute wss:// URL. See lib/livekit-url.ts.
   LIVEKIT_URL: z.string().default("ws://localhost:7880"),
+  // URL the API itself uses to reach LiveKit (required when LIVEKIT_URL is a path).
   LIVEKIT_API_URL: z.string().optional(),
   LIVEKIT_API_KEY: z.string(),
   LIVEKIT_API_SECRET: z.string(),
@@ -48,7 +51,12 @@ const schema = z.object({
 export type Config = z.infer<typeof schema>;
 
 function load(): Config {
-  const parsed = schema.safeParse(process.env);
+  const parsed = schema
+    .refine((c) => !c.LIVEKIT_URL.startsWith("/") || !!c.LIVEKIT_API_URL, {
+      path: ["LIVEKIT_API_URL"],
+      message: "wajib diisi (mis. http://livekit:7880) bila LIVEKIT_URL berupa path seperti /livekit",
+    })
+    .safeParse(process.env);
   if (!parsed.success) {
     const lines = parsed.error.issues.map((i) => `  ${i.path.join(".")}: ${i.message}`).join("\n");
     throw new Error(`Konfigurasi environment tidak valid:\n${lines}`);
