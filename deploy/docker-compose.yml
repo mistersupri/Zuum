@@ -40,6 +40,13 @@ x-zuum-env: &zuum-env
   LIVEKIT_API_SECRET: GANTI-secret-livekit-minimal-32-karakter-0123456789
   RECORD_INDIVIDUAL_AUDIO: "false"
 
+  # Cloudflare Realtime TURN (opsional). Membantu peserta di jaringan yang memblokir UDP,
+  # mis. jaringan kampus atau CGNAT. Buat TURN key di dashboard Cloudflare (Calls > TURN).
+  # Kosongkan keduanya untuk menonaktifkan.
+  CLOUDFLARE_TURN_KEY_ID: ""
+  # GANTI: API token Cloudflare dengan izin Calls (TURN). Hanya disimpan di server.
+  CLOUDFLARE_TURN_KEY_API_TOKEN: ""
+
   # Penyimpanan rekaman: RustFS bawaan (kompatibel S3). Bucket dibuat otomatis oleh API.
   S3_ENDPOINT: http://rustfs:9000
   # GANTI: alamat RustFS yang dijangkau browser, dipakai untuk tautan putar rekaman.

@@ -8,6 +8,8 @@ import { prisma } from "@zuum/db";
 
 const app = await buildApp();
 for (const problem of livekitUrlProblems(config.LIVEKIT_URL, config.PUBLIC_APP_URL)) app.log.warn(problem);
+if (!config.CLOUDFLARE_TURN_KEY_ID || !config.CLOUDFLARE_TURN_KEY_API_TOKEN)
+  app.log.info("Cloudflare TURN belum dikonfigurasi; browser memakai STUN bawaan LiveKit.");
 await startEventHub(app.log);
 
 const relay = setInterval(() => {

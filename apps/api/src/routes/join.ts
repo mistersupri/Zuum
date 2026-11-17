@@ -11,7 +11,14 @@ import { publish } from "../lib/events";
 import { signGuestToken } from "../lib/jwt";
 import { issueLivekitToken, roomService } from "../lib/livekit";
 import { browserLivekitUrl } from "../lib/livekit-url";
+import { createTurnProvider } from "../lib/turn";
 import { findUsableInvitation, startMeeting } from "./meetings";
+
+const turn = createTurnProvider({
+  keyId: config.CLOUDFLARE_TURN_KEY_ID ?? "",
+  apiToken: config.CLOUDFLARE_TURN_KEY_API_TOKEN ?? "",
+  log: { warn: (o, m) => console.warn(m, o) },
+});
 
 const joinBody = z.object({
   displayName: z.string().trim().min(2, "Nama tampilan minimal 2 karakter.").max(60).optional(),
@@ -213,7 +220,12 @@ export async function joinRoutes(app: FastifyInstance) {
       participantId: participant.id,
       role,
       guestToken,
-      livekit: { url: browserLivekitUrl(config.LIVEKIT_URL, config.PUBLIC_APP_URL), token },
+      livekit: {
+        url: browserLivekitUrl(config.LIVEKIT_URL, config.PUBLIC_APP_URL),
+        token,
+        // Per-participant, admitted participants only: never sent to the waiting room or guests not yet admitted.
+        iceServers: await turn.iceServers(),
+      },
       permissions: {
         ...grants,
         canRecord: can(role, "recording.control", policy),

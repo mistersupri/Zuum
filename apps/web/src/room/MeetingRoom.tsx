@@ -101,6 +101,9 @@ export function MeetingRoomPage() {
       audio={stored.prefs.micOn}
       video={stored.prefs.camOn}
       options={roomOptions(stored.prefs)}
+      // Cloudflare Realtime TURN credentials (issued per participant by the API). When present
+      // they replace LiveKit's default ICE list, so relays are used when a direct path fails.
+      connectOptions={stored.join.livekit.iceServers?.length ? { rtcConfig: { iceServers: stored.join.livekit.iceServers } } : undefined}
       onDisconnected={(reason) => {
         sessionStorage.removeItem(joinStorageKey(meetingId));
         if (reason === DisconnectReason.PARTICIPANT_REMOVED) setEnd({ kind: "removed" });

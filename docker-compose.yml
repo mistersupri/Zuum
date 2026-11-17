@@ -1,11 +1,15 @@
 # Zuum: build everything from this repository's source and run it.
-# No .env file needed: configuration is the "Konfigurasi" block below.
+# Self-contained: no .env file and no other files are needed.
 #
-#   docker compose up --build -d
+#   docker compose up -d
 #   open http://localhost:8080
 #
-# To run the published images instead of building, use deploy/docker-compose.yml.
-# Change the values marked GANTI before exposing it beyond your own machine.
+# Before using it beyond your own machine, change the values marked GANTI in the
+# "Konfigurasi" block below (host address and secrets). Everything else works as is.
+#
+# Image version: the default below is the release this file belongs to. Override
+# without editing with:  ZUUM_VERSION=1.2.3 docker compose up -d
+# If the GHCR packages are private, run `docker login ghcr.io` first.
 
 name: zuum
 
@@ -35,6 +39,13 @@ x-zuum-env: &zuum-env
   LIVEKIT_API_KEY: zuumkey
   LIVEKIT_API_SECRET: GANTI-secret-livekit-minimal-32-karakter-0123456789
   RECORD_INDIVIDUAL_AUDIO: "false"
+
+  # Cloudflare Realtime TURN (opsional). Membantu peserta di jaringan yang memblokir UDP,
+  # mis. jaringan kampus atau CGNAT. Buat TURN key di dashboard Cloudflare (Calls > TURN).
+  # Kosongkan keduanya untuk menonaktifkan.
+  CLOUDFLARE_TURN_KEY_ID: ""
+  # GANTI: API token Cloudflare dengan izin Calls (TURN). Hanya disimpan di server.
+  CLOUDFLARE_TURN_KEY_API_TOKEN: ""
 
   # Penyimpanan rekaman: RustFS bawaan (kompatibel S3). Bucket dibuat otomatis oleh API.
   S3_ENDPOINT: http://rustfs:9000

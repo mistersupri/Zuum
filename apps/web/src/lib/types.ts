@@ -98,7 +98,7 @@ export interface JoinResponse {
   participantId: string;
   role?: Role;
   guestToken: string | null;
-  livekit?: { url: string; token: string };
+  livekit?: { url: string; token: string; iceServers?: RTCIceServer[] };
   permissions?: { canPublish: boolean; canSubscribe: boolean; canShareScreen: boolean; canRecord: boolean; canViewTranscript: boolean };
 }
 

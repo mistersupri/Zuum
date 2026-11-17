@@ -95,6 +95,7 @@ Push ke `main` tanpa kenaikan versi hanya memperbarui tag `main` dan `sha-<commi
 | `STT_PROVIDER`, `WHISPER_BASE_URL`, `WHISPER_MODEL`, `STT_LANGUAGE=id` | Transkripsi. Default `whisper` (server OpenAI-compatible: faster-whisper, whisper.cpp, atau API Whisper ter-host). `deepgram` tersedia sebagai opsi berbayar. `mock` hanya untuk uji |
 | `WHISPER_PARTIAL_INTERVAL_MS` | Teks parsial saat orang masih berbicara. `0` (default) mematikannya untuk menghemat komputasi |
 | `LLM_PROVIDER`, `OLLAMA_MODEL` | AI notulen. Default `ollama` (model terbuka self-host, default `qwen2.5:7b-instruct`). `anthropic` memakai Claude, default `claude-haiku-5-5` |
+| `CLOUDFLARE_TURN_KEY_ID`, `CLOUDFLARE_TURN_KEY_API_TOKEN` | Cloudflare Realtime TURN (opsional). Membantu peserta di jaringan yang memblokir UDP. Kredensial dibuat per peserta yang diterima; token hanya di server. Kosong = nonaktif |
 | `S3_*`, `S3_PUBLIC_ENDPOINT` | Penyimpanan rekaman (RustFS bawaan, Cloudflare R2, S3; bucket dibuat otomatis saat API start). `S3_PUBLIC_ENDPOINT` dipakai untuk tautan putar bila endpoint internal tidak dapat dijangkau browser |
 | `RECORD_INDIVIDUAL_AUDIO` | Rekam juga audio per peserta selama perekaman |
 | `REQUIRE_EMAIL_VERIFICATION`, `SMTP_URL` | Verifikasi email dan email reset sandi. Di development, isi email dicetak ke log API |

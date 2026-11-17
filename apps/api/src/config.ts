@@ -28,6 +28,10 @@ const schema = z.object({
   LIVEKIT_API_KEY: z.string(),
   LIVEKIT_API_SECRET: z.string(),
   LIVEKIT_TOKEN_TTL_SECONDS: z.coerce.number().default(600),
+  // Cloudflare Realtime TURN (optional). Create a TURN key in the Cloudflare dashboard
+  // (Calls > TURN). Without these, browsers use LiveKit's own STUN list only.
+  CLOUDFLARE_TURN_KEY_ID: z.string().optional(),
+  CLOUDFLARE_TURN_KEY_API_TOKEN: z.string().optional(),
   RECORD_INDIVIDUAL_AUDIO: bool,
 
   S3_ENDPOINT: z.string().optional(),
